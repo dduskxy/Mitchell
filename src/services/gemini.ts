@@ -2,6 +2,15 @@ import { Product } from '../types/product';
 import { ChatMessage } from '../types/chat';
 
 const API_KEY_STORAGE = 'mitchell_gemini_api_key';
+const ACTIVE_MODEL_STORAGE = 'mitchell_active_gemini_model';
+
+// Candidate models in priority order to guarantee support for all API keys
+export const CANDIDATE_MODELS = [
+  'gemini-3.8-flash',
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+];
 
 export function getStoredApiKey(): string {
   try {
@@ -14,6 +23,8 @@ export function getStoredApiKey(): string {
 export function saveApiKey(key: string): void {
   try {
     localStorage.setItem(API_KEY_STORAGE, key.trim());
+    // Reset cached model when key changes so new key is re-verified
+    localStorage.removeItem(ACTIVE_MODEL_STORAGE);
   } catch (e) {
     console.error('Failed to save API key to localStorage', e);
   }
@@ -22,92 +33,183 @@ export function saveApiKey(key: string): void {
 export function removeApiKey(): void {
   try {
     localStorage.removeItem(API_KEY_STORAGE);
+    localStorage.removeItem(ACTIVE_MODEL_STORAGE);
   } catch (e) {
     console.error('Failed to remove API key from localStorage', e);
   }
 }
 
-export async function askGeminiBarista(
+export function getCachedModel(): string {
+  try {
+    return localStorage.getItem(ACTIVE_MODEL_STORAGE) || CANDIDATE_MODELS[0];
+  } catch {
+    return CANDIDATE_MODELS[0];
+  }
+}
+
+export function setCachedModel(model: string): void {
+  try {
+    localStorage.setItem(ACTIVE_MODEL_STORAGE, model);
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Ultra-fast Realtime Streaming Gemini Barista
+ * Supports all API keys with automatic model fallback cascade and SSE streaming.
+ */
+export async function streamGeminiBarista(
   apiKey: string,
   messages: ChatMessage[],
-  products: Product[]
-): Promise<string> {
+  products: Product[],
+  onChunk: (accumulatedText: string, activeModel: string) => void
+): Promise<{ text: string; model: string }> {
   const cleanKey = apiKey.trim();
   if (!cleanKey) {
-    throw new Error('API Key is missing. Please provide your Google Gemini API Key.');
+    throw new Error('กรุณากรอก Google Gemini API Key เพื่อเริ่มใช้งาน');
   }
 
-  // Build real-time catalog context for system instruction
-  const catalogContext = products.map((p) => {
-    return `- ${p.name} | Category: ${p.category} | Price: $${Number(p.price).toFixed(2)} | Status: ${
-      p.is_available ? 'Available' : 'SOLD OUT'
-    } | Notes: ${p.description || 'Artisan handcrafted'}`;
-  }).join('\n');
+  // Concise menu context for sub-second TTFT (Time To First Token)
+  const catalogContext = products
+    .map(
+      (p) =>
+        `- ${p.name} ($${Number(p.price).toFixed(2)}) [${p.category}]: ${
+          p.is_available ? 'In Stock' : 'SOLD OUT'
+        }. ${p.description || ''}`
+    )
+    .join('\n');
 
-  const systemPrompt = `You are "Mitchell AI Barista & Sommelier", the virtual host and culinary expert of the Mitchell Cafe & Artisan Kitchen.
-Your goal is to guide customers, recommend coffee, beverages, pastries, and brunch dishes, describe taste profiles, and answer customer inquiries with elegance and charm.
+  const systemPrompt = `You are Mitchell AI Barista, the witty, warm, and expert sommelier of Mitchell Cafe & Artisan Kitchen.
+LIVE MENU:
+${catalogContext}
 
-RULES & GUIDELINES:
-1. Language: Answer in the same language the customer speaks (Thai, English, etc.). If the customer writes in Thai, respond in polite, natural, refined Thai (ใช้ครับ/ค่ะ อย่างสุภาพและเป็นกันเอง).
-2. Knowledge Base: You have access to the exact real-time catalog from Mitchell's live Supabase database below:
---- CURRENT LIVE MENU ---
-${catalogContext || 'Catalog is currently loading or empty.'}
---- END OF MENU ---
-3. Stock Status: If a customer asks for or you suggest an item that is marked "SOLD OUT", clearly inform them that it is temporarily unavailable today and graciously recommend an available alternative.
-4. Prices & Recommendations: Quote exact prices when relevant. Suggest delicious pairings (e.g., pairing a dark rich Dirty or Pourover with a Pain au Chocolat or Croissant).
-5. Formatting: Use concise paragraphs, bullet points, and bold text for readability. Avoid overly long walls of text.`;
+INSTRUCTIONS:
+1. Speak in the customer's language (Default: polite, stylish Thai with ครับ/ค่ะ).
+2. Answer concisely and quickly. Keep replies under 2-3 short paragraphs or bullet points.
+3. If an item is SOLD OUT, politely mention it and recommend an in-stock alternative.
+4. Bold item names and prices (e.g. **Mitchell Signature Dirty** ($145.00)).`;
 
-  // Format contents for Gemini API (user & model history)
-  const contents = messages
+  // Only take the last 6 messages to keep latency minimal
+  const recentMessages = messages.slice(-6);
+  const contents = recentMessages
     .filter((m) => m.role === 'user' || m.role === 'assistant')
     .map((m) => ({
       role: m.role === 'user' ? 'user' : 'model',
       parts: [{ text: m.content }],
     }));
 
-  const GEMINI_MODEL = 'gemini-3.8-flash';
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${cleanKey}`;
+  const payload = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents,
+    generationConfig: {
+      temperature: 0.6,
+      maxOutputTokens: 500,
+    },
+  };
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        systemInstruction: {
-          parts: [{ text: systemPrompt }],
+  // Reorder candidate models to try the cached working model first
+  const cachedModel = getCachedModel();
+  const modelsToTry = [
+    cachedModel,
+    ...CANDIDATE_MODELS.filter((m) => m !== cachedModel),
+  ];
+
+  let lastError: any = null;
+
+  for (const model of modelsToTry) {
+    try {
+      const sseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${cleanKey}`;
+
+      const response = await fetch(sseUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        contents,
-        generationConfig: {
-          temperature: 0.7,
-          maxOutputTokens: 1000,
-        },
-      }),
-    });
+        body: JSON.stringify(payload),
+      });
 
-    const data = await response.json();
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const status = response.status;
+        const msg = errorData?.error?.message || response.statusText;
 
-    if (!response.ok) {
-      if (response.status === 400 || response.status === 403) {
-        throw new Error(
-          data?.error?.message || 'Invalid API Key. Please verify your key from https://aistudio.google.com/api-keys'
-        );
+        // If model not found or forbidden, continue to next model in cascade
+        if (status === 404 || msg.includes('not found') || msg.includes('not supported')) {
+          console.warn(`Model ${model} not available for this key, falling back to next model...`);
+          lastError = new Error(`Model ${model} not supported.`);
+          continue;
+        }
+
+        // Invalid API Key error
+        if (status === 400 && (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid'))) {
+          throw new Error('API Key ไม่ถูกต้อง กรุณาตรวจสอบจาก https://aistudio.google.com/api-keys');
+        }
+
+        if (status === 429) {
+          throw new Error('Google Gemini API Rate Limit: ขออภัยครับ โควตาคำขอเต็มชั่วคราว กรุณารอสักครู่แล้วลองใหม่');
+        }
+
+        throw new Error(msg || `Gemini Error (${status})`);
       }
-      if (response.status === 429) {
-        throw new Error('Google Gemini API rate limit reached. Please wait a moment and try again.');
+
+      // Read SSE stream in real-time
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('Streaming response body is unavailable.');
       }
-      throw new Error(data?.error?.message || `Gemini API Error: ${response.statusText}`);
-    }
 
-    const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!reply) {
-      throw new Error('No response was generated by Gemini. Please try asking again.');
-    }
+      const decoder = new TextDecoder('utf-8');
+      let accumulated = '';
+      let buffer = '';
 
-    return reply;
-  } catch (error: any) {
-    console.error('Gemini API Request Failed:', error);
-    throw error;
+      // Remember successful model for future instant calls
+      setCachedModel(model);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed.startsWith('data: ')) {
+            const jsonText = trimmed.slice(6);
+            if (!jsonText || jsonText === '[DONE]') continue;
+
+            try {
+              const data = JSON.parse(jsonText);
+              const chunk = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+              if (chunk) {
+                accumulated += chunk;
+                onChunk(accumulated, model);
+              }
+            } catch {
+              // Ignore partial JSON parse errors
+            }
+          }
+        }
+      }
+
+      if (accumulated.trim()) {
+        return { text: accumulated, model };
+      }
+
+      // If streaming produced no text, try next model
+      continue;
+    } catch (err: any) {
+      if (err?.message?.includes('API Key ไม่ถูกต้อง') || err?.message?.includes('Rate Limit')) {
+        throw err;
+      }
+      lastError = err;
+      console.warn(`Error streaming with model ${model}:`, err);
+    }
   }
+
+  throw lastError || new Error('ไม่สามารถเชื่อมต่อกับโมเดล Gemini ได้ กรุณาตรวจสอบ API Key ของคุณ');
 }

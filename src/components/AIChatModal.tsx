@@ -5,7 +5,8 @@ import {
   getStoredApiKey,
   saveApiKey,
   removeApiKey,
-  askGeminiBarista,
+  streamGeminiBarista,
+  getCachedModel,
 } from '../services/gemini';
 import {
   Sparkles,
@@ -20,6 +21,7 @@ import {
   AlertCircle,
   Coffee,
   RotateCcw,
+  Zap,
 } from 'lucide-react';
 
 interface AIChatModalProps {
@@ -33,10 +35,11 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
   const [isConfiguringKey, setIsConfiguringKey] = useState(false);
   const [showKeyPassword, setShowKeyPassword] = useState(false);
   const [keyInput, setKeyInput] = useState('');
+  const [activeModel, setActiveModel] = useState(getCachedModel());
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -59,19 +62,19 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
           id: 'welcome-1',
           role: 'assistant',
           content:
-            'สวัสดีครับ! ผมคือ **Mitchell AI Barista & Sommelier** ยินดีต้อนรับสู่ Mitchell ครับ\n\nผมสามารถแนะนำเมนูกาแฟ ชา เบเกอรี่ และของหวาน รวมถึงเช็คราคาและสินค้าพร้อมเสิร์ฟแบบ Realtime ได้ทันที ลองเลือกคำถามแนะนำด้านล่าง หรือพิมพ์ถามผมได้เลยครับ!',
+            'สวัสดีครับ! ผมคือ **Mitchell AI Barista** ผู้ช่วยอัจฉริยะประจำร้าน Mitchell ยินดีต้อนรับครับ ☕✨\n\nผมพร้อมตอบคำถาม แนะนำเมนูกาแฟ เครื่องดื่ม เบเกอรี่ และของหวานแบบ **Real-time Streaming ตอบกลับรวดเร็วทันใจ** คุณสามารถพิมพ์ถามหรือเลือกคำถามตัวอย่างด้านล่างได้เลยครับ!',
           timestamp: new Date().toISOString(),
         },
       ]);
     }
   }, [isOpen, messages.length]);
 
-  // Scroll to bottom on new messages
+  // Scroll to bottom on new messages / streaming updates
   useEffect(() => {
     if (isOpen && !isConfiguringKey) {
       messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
-  }, [messages, isLoading, isOpen, isConfiguringKey]);
+  }, [messages, isStreaming, isOpen, isConfiguringKey]);
 
   const handleSaveKey = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -97,15 +100,18 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
 
   const handleSendMessage = async (textToSend?: string) => {
     const text = (textToSend ?? inputText).trim();
-    if (!text || isLoading) return;
+    if (!text || isStreaming) return;
 
     if (!hasKey || !apiKey) {
       setIsConfiguringKey(true);
       return;
     }
 
+    const userMsgId = `${Date.now()}-user`;
+    const assistantMsgId = `${Date.now()}-assistant`;
+
     const userMsg: ChatMessage = {
-      id: `${Date.now()}-user`,
+      id: userMsgId,
       role: 'user',
       content: text,
       timestamp: new Date().toISOString(),
@@ -114,22 +120,44 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInputText('');
-    setIsLoading(true);
+    setIsStreaming(true);
     setErrorMessage(null);
 
+    // Placeholder message for streaming response
+    let hasAddedAssistantMsg = false;
+
     try {
-      const reply = await askGeminiBarista(apiKey, newMessages, products);
-      const assistantMsg: ChatMessage = {
-        id: `${Date.now()}-assistant`,
-        role: 'assistant',
-        content: reply,
-        timestamp: new Date().toISOString(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      await streamGeminiBarista(
+        apiKey,
+        newMessages,
+        products,
+        (accumulatedText, modelUsed) => {
+          setActiveModel(modelUsed);
+          if (!hasAddedAssistantMsg) {
+            hasAddedAssistantMsg = true;
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: assistantMsgId,
+                role: 'assistant',
+                content: accumulatedText,
+                timestamp: new Date().toISOString(),
+              },
+            ]);
+          } else {
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantMsgId ? { ...msg, content: accumulatedText } : msg
+              )
+            );
+          }
+        }
+      );
     } catch (err: any) {
+      console.error('Chat error:', err);
       setErrorMessage(err?.message || 'เกิดข้อผิดพลาดในการเชื่อมต่อกับ Gemini API');
     } finally {
-      setIsLoading(false);
+      setIsStreaming(false);
     }
   };
 
@@ -138,7 +166,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
       {
         id: `${Date.now()}-welcome`,
         role: 'assistant',
-        content: 'ประวัติการสนทนาถูกรีเซ็ตเรียบร้อยแล้วครับ ต้องการให้ผมแนะนำเมนูไหนเป็นพิเศษไหมครับ?',
+        content: 'ประวัติการสนทนาถูกรีเซ็ตเรียบร้อยแล้วครับ ต้องการให้ผมแนะนำเมนูไหนเป็นพิเศษไหมครับ? ☕',
         timestamp: new Date().toISOString(),
       },
     ]);
@@ -146,11 +174,19 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
   };
 
   const quickPrompts = [
-    '☕ แนะนำเมนูกาแฟ Signature หน่อย',
-    '🍵 มีเมนูไหนที่ไม่ผสมกาเฟอีนบ้าง?',
-    '🥐 Pain au Chocolat ทานคู่กับเครื่องดื่มอะไรดี?',
-    '✨ เมนูไหนกำลังขายดีในตอนนี้?',
+    '☕ แนะนำเมนูกาแฟ Signature ด่วน',
+    '🍵 มีเครื่องดื่มไหนไม่ใส่กาแฟบ้าง?',
+    '🥐 Pain au Chocolat ทานคู่กับอะไรดี?',
+    '✨ เมนูไหนที่ยังมีของพร้อมเสิร์ฟ?',
   ];
+
+  const formatModelBadge = (model: string) => {
+    if (model.includes('3.8')) return 'Gemini 3.8 Flash';
+    if (model.includes('2.5')) return 'Gemini 2.5 Flash';
+    if (model.includes('2.0')) return 'Gemini 2.0 Flash';
+    if (model.includes('1.5')) return 'Gemini 1.5 Flash';
+    return model;
+  };
 
   return (
     <>
@@ -164,7 +200,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
             }
           }}
           className="fixed bottom-6 right-6 z-40 group flex items-center gap-2.5 px-4 py-3.5 rounded-full bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600 text-neutral-950 font-bold shadow-2xl shadow-amber-500/30 hover:shadow-amber-500/50 hover:scale-105 active:scale-95 transition-all duration-300 cursor-pointer"
-          title="คุยกับ Mitchell AI Barista"
+          title="คุยกับ Mitchell AI Barista (Streaming Fast)"
         >
           <div className="relative flex items-center justify-center">
             <Sparkles className="w-5 h-5 text-neutral-950 animate-bounce" />
@@ -174,17 +210,18 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
             </span>
           </div>
           <span className="text-sm tracking-wide">AI Barista</span>
-          <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded-full bg-neutral-950/20 text-neutral-950">
-            Gemini
+          <span className="text-[10px] uppercase font-extrabold px-1.5 py-0.5 rounded-full bg-neutral-950/20 text-neutral-950 flex items-center gap-0.5">
+            <Zap className="w-3 h-3 fill-current" />
+            Fast
           </span>
         </button>
       )}
 
       {/* Floating Chat Window Modal */}
       {isOpen && (
-        <div className="fixed inset-x-4 bottom-4 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:w-[420px] h-[580px] max-h-[85vh] z-50 flex flex-col rounded-3xl bg-neutral-900/95 border border-neutral-800 shadow-2xl backdrop-blur-2xl overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5">
+        <div className="fixed inset-x-4 bottom-4 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:w-[430px] h-[600px] max-h-[85vh] z-50 flex flex-col rounded-3xl bg-neutral-900/95 border border-neutral-800 shadow-2xl backdrop-blur-2xl overflow-hidden transition-all duration-300 animate-in fade-in slide-in-from-bottom-5">
           {/* Header */}
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-neutral-800 bg-neutral-950/60">
+          <div className="flex items-center justify-between px-5 py-3.5 border-b border-neutral-800 bg-neutral-950/70">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-amber-300 p-0.5 flex items-center justify-center shadow-md shadow-amber-500/20">
                 <div className="w-full h-full bg-neutral-950 rounded-[10px] flex items-center justify-center">
@@ -194,9 +231,15 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
               <div>
                 <div className="flex items-center gap-1.5">
                   <span className="text-sm font-bold text-neutral-100">Mitchell AI Barista</span>
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.2 rounded-full text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                    SSE Stream
+                  </span>
                 </div>
-                <p className="text-[11px] text-neutral-400">Powered by Google Gemini 3.8 Flash</p>
+                <div className="flex items-center gap-1.5 text-[11px] text-neutral-400">
+                  <Zap className="w-3 h-3 text-amber-400" />
+                  <span>{formatModelBadge(activeModel)}</span>
+                </div>
               </div>
             </div>
 
@@ -248,18 +291,21 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                 </div>
 
                 <div>
-                  <h3 className="text-base font-bold text-neutral-100">
-                    ตั้งค่า Google Gemini API Key
+                  <h3 className="text-base font-bold text-neutral-100 flex items-center gap-2">
+                    <span>ตั้งค่า Google Gemini API Key</span>
+                    <span className="text-[10px] font-normal px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                      รองรับทุก Key
+                    </span>
                   </h3>
                   <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                    เพื่อให้คุณสามารถสอบถามและพูดคุยกับ AI Barista ได้อย่างอิสระ โปรดกรอก API Key ส่วนตัวของคุณจาก Google AI Studio
+                    ระบบรองรับโมเดล Gemini 3.8 Flash, 2.5 Flash, 2.0 Flash และ 1.5 Flash พร้อมระบบตรวจจับโมเดลอัตโนมัติ เพื่อให้ตอบกลับได้เร็วที่สุดและใช้งานได้กับทุก API Key
                   </p>
                 </div>
 
                 {/* Direct Link to Google AI Studio */}
                 <div className="p-3.5 rounded-2xl bg-neutral-900 border border-neutral-800 flex items-center justify-between gap-3">
                   <div className="text-xs text-neutral-300">
-                    ยังไม่มี API Key? สร้างได้ฟรีในไม่กี่วินาที
+                    รับ API Key ฟรีจาก Google AI Studio
                   </div>
                   <a
                     href="https://aistudio.google.com/api-keys"
@@ -267,7 +313,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                     rel="noreferrer"
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition whitespace-nowrap"
                   >
-                    <span>รับ API Key</span>
+                    <span>สร้าง API Key</span>
                     <ExternalLink className="w-3.5 h-3.5" />
                   </a>
                 </div>
@@ -308,7 +354,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                   )}
 
                   <div className="text-[11px] text-neutral-500 leading-relaxed">
-                    🔒 API Key ของคุณจะถูกบันทึกไว้ในเบราว์เซอร์ (LocalStorage) ของเครื่องคุณเท่านั้น ไม่มีการส่งผ่าน Server กลางใดๆ
+                    🔒 API Key ถูกบันทึกไว้ในเบราว์เซอร์ของคุณเท่านั้น มีระบบ Cascade Auto-Fallback เพื่อความเสถียรสูงสุด
                   </div>
 
                   <div className="pt-2 flex items-center gap-2">
@@ -317,7 +363,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                       className="flex-1 py-2.5 rounded-xl text-xs font-bold bg-amber-500 text-neutral-950 hover:bg-amber-400 transition cursor-pointer shadow-lg shadow-amber-500/20 flex items-center justify-center gap-1.5"
                     >
                       <CheckCircle2 className="w-4 h-4" />
-                      <span>บันทึกและเริ่มใช้งาน</span>
+                      <span>บันทึกและเริ่มแชทความเร็วสูง</span>
                     </button>
 
                     {hasKey && (
@@ -358,7 +404,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                     }`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-xs sm:text-[13px] leading-relaxed shadow-sm ${
+                      className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-xs sm:text-[13px] leading-relaxed shadow-sm ${
                         msg.role === 'user'
                           ? 'bg-amber-500 text-neutral-950 font-medium rounded-tr-sm'
                           : 'bg-neutral-900 border border-neutral-800 text-neutral-200 rounded-tl-sm'
@@ -387,13 +433,16 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                   </div>
                 ))}
 
-                {/* Typing Indicator */}
-                {isLoading && (
-                  <div className="flex items-start">
-                    <div className="bg-neutral-900 border border-neutral-800 rounded-2xl rounded-tl-sm px-4 py-3 text-xs text-neutral-400 flex items-center gap-2">
-                      <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-                      <span>Mitchell Barista กำลังพิมพ์...</span>
-                    </div>
+                {/* Streaming Indicator */}
+                {isStreaming && (
+                  <div className="flex items-center gap-2 text-xs text-neutral-400 px-2 py-1">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                    </span>
+                    <span className="text-[11px] text-amber-300 font-mono">
+                      กำลังสตรีมคำตอบ...
+                    </span>
                   </div>
                 )}
 
@@ -419,7 +468,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
               </div>
 
               {/* Quick Suggestion Chips */}
-              {messages.length <= 2 && !isLoading && (
+              {messages.length <= 2 && !isStreaming && (
                 <div className="px-4 py-2 border-t border-neutral-850/60 flex items-center gap-2 overflow-x-auto scrollbar-none">
                   {quickPrompts.map((prompt, i) => (
                     <button
@@ -446,13 +495,13 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                     type="text"
                     value={inputText}
                     onChange={(e) => setInputText(e.target.value)}
-                    placeholder="สอบถามเกี่ยวกับเมนูหรือให้ Barista แนะนำ..."
-                    disabled={isLoading}
+                    placeholder="สอบถามเมนูกับ AI Barista (ตอบกลับรวดเร็ว)..."
+                    disabled={isStreaming}
                     className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition disabled:opacity-50"
                   />
                   <button
                     type="submit"
-                    disabled={!inputText.trim() || isLoading}
+                    disabled={!inputText.trim() || isStreaming}
                     className="p-2.5 rounded-xl bg-amber-500 text-neutral-950 font-bold hover:bg-amber-400 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-amber-500/20"
                     title="ส่งข้อความ"
                   >
