@@ -480,30 +480,43 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
 
               {/* Input Area */}
               <div className="p-3 border-t border-neutral-800 bg-neutral-950/80">
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }}
-                  className="flex items-center gap-2"
-                >
-                  <input
-                    type="text"
-                    value={inputText}
-                    onChange={(e) => setInputText(e.target.value)}
-                    placeholder="สอบถามเมนูกับ AI Barista (ตอบกลับรวดเร็ว)..."
-                    disabled={isStreaming}
-                    className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition disabled:opacity-50"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!inputText.trim() || isStreaming}
-                    className="p-2.5 rounded-xl bg-amber-500 text-neutral-950 font-bold hover:bg-amber-400 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-amber-500/20"
-                    title="ส่งข้อความ"
+                {!hasKey ? (
+                  <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-2 text-xs">
+                    <span className="text-amber-300 font-medium">กรุณากรอก API Key เพื่อเปิดใช้งาน AI</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsConfiguringKey(true)}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500 text-neutral-950 font-bold hover:bg-amber-400 transition cursor-pointer text-xs whitespace-nowrap"
+                    >
+                      กรอก Key ที่นี่
+                    </button>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleSendMessage();
+                    }}
+                    className="flex items-center gap-2"
                   >
-                    <Send className="w-4 h-4" />
-                  </button>
-                </form>
+                    <input
+                      type="text"
+                      value={inputText}
+                      onChange={(e) => setInputText(e.target.value)}
+                      placeholder="สอบถามเมนูกับ AI Barista (ตอบกลับรวดเร็ว)..."
+                      disabled={isStreaming}
+                      className="flex-1 bg-neutral-900 border border-neutral-800 rounded-xl px-3.5 py-2.5 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition disabled:opacity-50"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!inputText.trim() || isStreaming}
+                      className="p-2.5 rounded-xl bg-amber-500 text-neutral-950 font-bold hover:bg-amber-400 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shadow-md shadow-amber-500/20"
+                      title="ส่งข้อความ"
+                    >
+                      <Send className="w-4 h-4" />
+                    </button>
+                  </form>
+                )}
               </div>
             </div>
           )}

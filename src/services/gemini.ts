@@ -82,8 +82,8 @@ INSTRUCTIONS:
     },
     contents,
     generationConfig: {
-      temperature: 0.6,
-      maxOutputTokens: 600,
+      temperature: 0.7,
+      maxOutputTokens: 2048,
     },
   };
 
@@ -125,10 +125,12 @@ INSTRUCTIONS:
 
               try {
                 const data = JSON.parse(jsonText);
-                const chunk = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-                if (chunk) {
-                  accumulated += chunk;
-                  onChunk(accumulated, model);
+                const parts = data?.candidates?.[0]?.content?.parts || [];
+                for (const p of parts) {
+                  if (p && typeof p.text === 'string') {
+                    accumulated += p.text;
+                    onChunk(accumulated, model);
+                  }
                 }
               } catch {
                 // Ignore partial JSON chunks
@@ -182,9 +184,23 @@ INSTRUCTIONS:
     throw new Error(errorMsg);
   }
 
-  const generatedText = stdData?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!generatedText) {
-    throw new Error('ไม่พบคำตอบจาก Gemini โปรดลองพิมพ์คำถามใหม่อีกครั้ง');
+  const parts = stdData?.candidates?.[0]?.content?.parts || [];
+  let generatedText = parts
+    .filter((p: any) => p && typeof p.text === 'string')
+    .map((p: any) => p.text)
+    .join('');
+
+  if (!generatedText.trim()) {
+    // If text part is missing but thought exists, fallback to thought
+    const fallbackThought = parts
+      .filter((p: any) => p && typeof p.thought === 'string')
+      .map((p: any) => p.thought)
+      .join('');
+    generatedText = fallbackThought;
+  }
+
+  if (!generatedText.trim()) {
+    throw new Error('ไม่พบข้อความตอบกลับจาก Gemini โปรดตรวจสอบว่าคำถามไม่ขัดต่อ Safety Guidelines หรือลองใหม่อีกครั้ง');
   }
 
   onChunk(generatedText, model);
