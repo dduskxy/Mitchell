@@ -8,6 +8,7 @@ import { LoadingSkeleton } from './components/LoadingSkeleton';
 import { ErrorState } from './components/ErrorState';
 import { ActivityFeedDrawer } from './components/ActivityFeedDrawer';
 import { SQLMigrationModal } from './components/SQLMigrationModal';
+import { AIChatModal } from './components/AIChatModal';
 import { Footer } from './components/Footer';
 
 export function App() {
@@ -164,6 +165,9 @@ export function App() {
         isOpen={isMigrationModalOpen}
         onClose={() => setIsMigrationModalOpen(false)}
       />
+
+      {/* AI Barista Chatbot (Users provide their own Google Gemini API Key) */}
+      <AIChatModal products={products} />
 
       {/* Footer */}
       <Footer />

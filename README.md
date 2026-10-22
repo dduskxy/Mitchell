@@ -23,6 +23,7 @@ Mitchell is engineered as an artisanal cafe and digital menu platform showcasing
 
 ## 2. Key Features
 
+- **Mitchell AI Barista & Sommelier**: Floating AI Chatbot powered by Google Gemini 2.0. Users provide their own personal API key from [Google AI Studio](https://aistudio.google.com/api-keys) stored securely in `localStorage`. The AI possesses real-time awareness of the menu, pricing, flavor profiles, and live stock availability.
 - **Live Database Activity Feed**: Slide-out event drawer displaying `INSERT`, `UPDATE`, `DELETE`, and `SYSTEM` events with exact timestamp, item ID, and field-level diffs.
 - **Connection Health Indicator**: Realtime connection status badge (`Live`, `Connecting`, `Reconnecting`, `Polling Fallback`, `Connection Error`) and last sync timestamp.
 - **Dynamic Category Filtering**: Categories are dynamically generated from live database rows.
