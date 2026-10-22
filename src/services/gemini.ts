@@ -65,7 +65,8 @@ ${catalogContext || 'Catalog is currently loading or empty.'}
       parts: [{ text: m.content }],
     }));
 
-  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${cleanKey}`;
+  const GEMINI_MODEL = 'gemini-3.8-flash';
+  const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${cleanKey}`;
 
   try {
     const response = await fetch(endpoint, {

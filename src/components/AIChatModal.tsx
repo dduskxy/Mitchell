@@ -196,7 +196,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                   <span className="text-sm font-bold text-neutral-100">Mitchell AI Barista</span>
                   <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>
                 </div>
-                <p className="text-[11px] text-neutral-400">Powered by Google Gemini 2.0</p>
+                <p className="text-[11px] text-neutral-400">Powered by Google Gemini 3.8 Flash</p>
               </div>
             </div>
 
