@@ -66,6 +66,23 @@ npm run dev
 
 Visit `http://localhost:5173/Mitchell/` in your browser.
 
+### Docker Desktop Setup (Port 8080:80)
+
+Run Mitchell instantly inside a lightweight Nginx container:
+
+```bash
+# Build and run with Docker Compose
+docker compose up -d --build
+
+# View container logs
+docker compose logs -f
+
+# Stop container
+docker compose down
+```
+
+Open your browser at **`http://localhost:8080/`**.
+
 ---
 
 ## 5. Environment Variables

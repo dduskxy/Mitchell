@@ -1,0 +1,14 @@
+services:
+  mitchell-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: /
+        VITE_SUPABASE_URL: https://jsajtnrvocialfaupjxw.supabase.co
+        VITE_SUPABASE_PUBLISHABLE_KEY: sb_publishable_VVLUy21pC0VCHmAVpNMhXw_nsnNiVLP
+    image: mitchell-web:latest
+    container_name: mitchell-web
+    ports:
+      - "8080:80"
+    restart: unless-stopped
