@@ -6,7 +6,7 @@ import {
   saveApiKey,
   removeApiKey,
   streamGeminiBarista,
-  getCachedModel,
+  TARGET_MODEL,
 } from '../services/gemini';
 import {
   Sparkles,
@@ -35,7 +35,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
   const [isConfiguringKey, setIsConfiguringKey] = useState(false);
   const [showKeyPassword, setShowKeyPassword] = useState(false);
   const [keyInput, setKeyInput] = useState('');
-  const [activeModel, setActiveModel] = useState(getCachedModel());
+  const [activeModel, setActiveModel] = useState(TARGET_MODEL);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
@@ -180,12 +180,8 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
     '✨ เมนูไหนที่ยังมีของพร้อมเสิร์ฟ?',
   ];
 
-  const formatModelBadge = (model: string) => {
-    if (model.includes('3.8')) return 'Gemini 3.8 Flash';
-    if (model.includes('2.5')) return 'Gemini 2.5 Flash';
-    if (model.includes('2.0')) return 'Gemini 2.0 Flash';
-    if (model.includes('1.5')) return 'Gemini 1.5 Flash';
-    return model;
+  const formatModelBadge = (_model?: string) => {
+    return 'Gemini 3.8 Flash';
   };
 
   return (
@@ -298,7 +294,7 @@ export const AIChatModal: React.FC<AIChatModalProps> = ({ products }) => {
                     </span>
                   </h3>
                   <p className="text-xs text-neutral-400 mt-1 leading-relaxed">
-                    ระบบรองรับโมเดล Gemini 3.8 Flash, 2.5 Flash, 2.0 Flash และ 1.5 Flash พร้อมระบบตรวจจับโมเดลอัตโนมัติ เพื่อให้ตอบกลับได้เร็วที่สุดและใช้งานได้กับทุก API Key
+                    ระบบใช้งานโมเดลเรือธง Gemini 3.8 Flash พร้อมระบบ Real-time Streaming ตอบกลับรวดเร็วทันใจ
                   </p>
                 </div>
 
